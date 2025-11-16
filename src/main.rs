@@ -29,32 +29,47 @@ fn curl_check(app_name: &str) {
     }
 }
 
-fn get_content_size(url: &str) -> Option<u128> {
-    // Gets link info with curl
-    let url = url;
-    let curled = Command::new("curl")
-        .arg("-sI")
-        .arg(url)
-        .output()
-        .expect("failed to run curl");
-    let stdout = String::from_utf8_lossy(&curled.stdout);
+fn get_content_length(url: &str) -> Option<u128> {
+    let mut url = url.to_owned();
+    loop {
+        // Gets link info with curl.
+        let curled = Command::new("curl")
+            .arg("-sI")
+            .arg(url)
+            .output()
+            .expect("failed to run curl");
+        let stdout = String::from_utf8_lossy(&curled.stdout);
 
-    // Determines and returns file size.
-    stdout.lines()
-        .find_map(|line| {
-            if line.to_lowercase().starts_with("content-length:") {
-                line.split(':')
-                    .nth(1)
-                    .map(|v| v.trim().parse::<u128>().ok())
-                    .flatten()
-            } else {
-                None
+        match stdout.lines()
+            .find(|line| line.split_once(':')
+                .map(|(h, _)| h.trim().eq_ignore_ascii_case("location"))
+                .unwrap_or(false))
+        {
+            // Reaches the final direct link if not provided.
+            Some(location) => {
+                let (_, value) = location.split_once(':').unwrap();
+                url = value.trim().to_owned();
+                continue;
+            },
+            // If no 'location' exists, then this is the final link so it returns its size.
+            None => {
+                break stdout.lines().find_map(|line| {
+                    if let Some((header, value)) = line.split_once(':') {
+                        if header.trim().eq_ignore_ascii_case("content-length") {
+                            return value.trim().parse().ok();
+                        }
+                    }
+                    None
+                })
             }
-        })
+        }
+
+        
+    }
 }
 
 fn get_size(app_name: &str, url: &str) -> String {
-    let content_size = get_content_size(url);
+    let content_size = get_content_length(url);
     let size;
     match content_size {
         Some(s) => size = s,
